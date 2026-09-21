@@ -1,0 +1,6 @@
+# Fresh/editor runtime files
+*.log
+*.tmp
+
+# Local test artifacts
+.fresh-test/
