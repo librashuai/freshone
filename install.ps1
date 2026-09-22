@@ -73,7 +73,9 @@ if ($Uninstall) {
 
 $requiredFiles = @(
     'package.json',
-    'lsp_find_references_pinned.ts'
+    'freshone.ts',
+    'lsp_find_references_pinned.ts',
+    'buffer_search_bar.ts'
 )
 foreach ($file in $requiredFiles) {
     $path = Join-Path $SourceRoot $file
@@ -83,7 +85,7 @@ foreach ($file in $requiredFiles) {
 }
 
 Write-Host '检查插件 TypeScript…'
-& $fresh --cmd script check (Join-Path $SourceRoot 'lsp_find_references_pinned.ts')
+& $fresh --cmd script check (Join-Path $SourceRoot 'freshone.ts')
 if ($LASTEXITCODE -ne 0) {
     throw 'Fresh 插件检查失败，未部署。'
 }
@@ -94,7 +96,7 @@ $staging = Join-Path $packagesDir ('.freshone-staging-' + $transactionId)
 $backup = Join-Path $packagesDir ('.freshone-backup-' + $transactionId)
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
 try {
-    foreach ($file in @('package.json', 'lsp_find_references_pinned.ts', 'README.md', 'LICENSE')) {
+    foreach ($file in @('package.json', 'freshone.ts', 'lsp_find_references_pinned.ts', 'buffer_search_bar.ts', 'README.md', 'LICENSE')) {
         $source = Join-Path $SourceRoot $file
         if (Test-Path -LiteralPath $source -PathType Leaf) {
             Copy-Item -LiteralPath $source -Destination (Join-Path $staging $file) -Force

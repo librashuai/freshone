@@ -2,6 +2,39 @@
 
 自用的 [Fresh Editor](https://getfresh.dev/) 插件集合。
 
+## Find in Buffer Bottom Bar
+
+Fresh 0.5.1 的插件 API 不能向原生 `Ctrl+F` prompt 添加按钮，因此插件提供了新的 **`Find in Buffer (Bottom Bar)`** 命令。它会在共享的 **Utility Dock** 中打开搜索栏，与 Search/Replace、Diagnostics、Quickfix 等工具复用同一个底部区域：
+
+- 输入内容时实时搜索当前 Buffer，并高亮全部匹配；
+- 搜索栏显示“当前序号/总数量”；
+- 可点击 `↑`、`↓` 切换匹配，点击 `×` 退出；
+- 搜索栏只占一行，不再显示上一个、下一个和关闭操作的第二行提示文字；
+- 点击 **All Results** 后，Utility Dock 展开为当前文件的完整结果列表；
+- 每行显示行列号和源代码，匹配文本会高亮；
+- 单击结果行会在上方原始 Buffer 跳转，结果列表保持打开；
+- 原始 Buffer 修改后，结果会自动刷新；
+- 只有结果 tab 的 `×`、搜索栏的 `×`，或搜索区域聚焦时的 `Esc` / `Ctrl+Q` 会关闭整个搜索区域。
+
+如果开始搜索前选中了单行文本，该文本会自动作为初始搜索内容。搜索按字面量、不区分大小写。
+
+如需让它替代原生 `Ctrl+F`，在 Fresh 的 `config.json` 顶层加入以下绑定（自定义绑定会覆盖内置绑定）：
+
+```json
+{
+  "keybindings": [
+    {
+      "key": "f",
+      "modifiers": ["ctrl"],
+      "action": "freshone_buffer_search_start",
+      "when": "normal"
+    }
+  ]
+}
+```
+
+也可以通过 **Show Keyboard Shortcuts** 为 `freshone_buffer_search_start` 配置其他按键。
+
 ## LSP Find References Pinned
 
 命令面板中执行 **`LSP Find References Pinned`**：
@@ -61,5 +94,6 @@ Fresh 已运行时需要重启。也可以让脚本自动重启：
 ## 要求
 
 - Fresh Editor 0.5.1 或更高版本
-- 已为当前语言配置并启动 LSP
-- 文件位于 Fresh 的当前 workspace 中（项目相对路径以 `editor.getCwd()` 为根）
+- Find in Buffer 可用于普通文本 Buffer
+- LSP Find References 需要为当前语言配置并启动 LSP
+- 引用文件位于 Fresh 的当前 workspace 中（项目相对路径以 `editor.getCwd()` 为根）

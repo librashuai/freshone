@@ -1,12 +1,12 @@
 {
   "name": "freshone",
-  "version": "0.1.0",
-  "description": "Personal Fresh editor plugins, starting with LSP Find References Pinned",
+  "version": "0.2.0",
+  "description": "Pinned references and an interactive current-buffer search bar for Fresh Editor",
   "type": "plugin",
   "license": "MIT",
-  "keywords": ["fresh-editor", "lsp", "references"],
+  "keywords": ["fresh-editor", "lsp", "references", "search"],
   "fresh": {
     "min_version": "0.5.1",
-    "entry": "lsp_find_references_pinned.ts"
+    "entry": "freshone.ts"
   }
 }
