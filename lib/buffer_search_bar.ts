@@ -4,7 +4,6 @@ interface BufferSearchMatch {
   start: number;
   end: number;
   line: number;
-  column: number;
   lineText: string;
   lineMatchStart: number;
   lineMatchEnd: number;
@@ -100,10 +99,14 @@ function searchInput(value: string): WidgetSpec {
 }
 
 function resultEntries(): TextPropertyEntry[] {
-  const digits = String(Math.max(1, bufferSearchState.matches.length)).length;
+  const lastLine = bufferSearchState.matches.reduce(
+    (maximum, match) => Math.max(maximum, match.line + 1),
+    1,
+  );
+  const digits = String(lastLine).length;
   return bufferSearchState.matches.map((match, index) => {
-    const location = `${String(match.line + 1).padStart(digits, " ")}:${match.column + 1}`;
-    const prefix = `${index === bufferSearchState.selected ? ">" : " "} ${location} │ `;
+    const lineNumber = String(match.line + 1).padStart(digits, " ");
+    const prefix = `${index === bufferSearchState.selected ? ">" : " "} ${lineNumber} │ `;
     return {
       text: `${prefix}${match.lineText}`,
       properties: { matchIndex: index },
@@ -305,7 +308,6 @@ function collectMatches(text: string, query: string): BufferSearchMatch[] {
       start: byteStart,
       end: byteEnd,
       line,
-      column: codePointLength(text.slice(lineStart, charStart)),
       lineText: text.slice(lineStart, lineEnd),
       lineMatchStart: codePointLength(text.slice(lineStart, charStart)),
       lineMatchEnd: codePointLength(text.slice(lineStart, visibleMatchEnd)),
@@ -509,7 +511,7 @@ async function startBufferSearch(): Promise<void> {
 registerHandler("freshone_buffer_search_start", startBufferSearch);
 
 bufferSearchEditor.registerCommand(
-  "Find in Buffer (Bottom Bar)",
+  "Find in Buffer",
   "Open an interactive current-buffer search bar in the Utility Dock",
   "freshone_buffer_search_start",
   null,
@@ -522,14 +524,18 @@ function sendTextInputKey(key: string): void {
   });
 }
 
-function modeTextInput(data: { text: string }): void {
-  if (bufferSearchState.panelBufferId === null || !data?.text) return;
+export function handleBufferSearchTextInput(data: { text: string }): boolean {
+  if (
+    bufferSearchState.panelBufferId === null ||
+    bufferSearchEditor.getActiveBufferId() !== bufferSearchState.panelBufferId ||
+    !data?.text
+  ) return false;
   bufferSearchEditor.widgetCommand(BUFFER_SEARCH_WIDGET_ID, {
     kind: "textInputChar",
     text: data.text,
   });
+  return true;
 }
-registerHandler("mode_text_input", modeTextInput);
 
 function searchBackspace(): void { sendTextInputKey("Backspace"); }
 function searchDelete(): void { sendTextInputKey("Delete"); }

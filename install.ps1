@@ -71,17 +71,21 @@ if ($Uninstall) {
     exit 0
 }
 
-$requiredFiles = @(
-    'package.json',
-    'freshone.ts',
-    'lsp_find_references_pinned.ts',
-    'buffer_search_bar.ts'
-)
+$requiredFiles = @('package.json', 'freshone.ts')
 foreach ($file in $requiredFiles) {
     $path = Join-Path $SourceRoot $file
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "缺少部署文件：$path"
     }
+}
+
+$libRoot = Join-Path $SourceRoot 'lib'
+if (-not (Test-Path -LiteralPath $libRoot -PathType Container)) {
+    throw "缺少部署目录：$libRoot"
+}
+$libFiles = @(Get-ChildItem -LiteralPath $libRoot -Recurse -File)
+if ($libFiles.Count -eq 0) {
+    throw "部署目录为空：$libRoot"
 }
 
 Write-Host '检查插件 TypeScript…'
@@ -96,11 +100,18 @@ $staging = Join-Path $packagesDir ('.freshone-staging-' + $transactionId)
 $backup = Join-Path $packagesDir ('.freshone-backup-' + $transactionId)
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
 try {
-    foreach ($file in @('package.json', 'freshone.ts', 'lsp_find_references_pinned.ts', 'buffer_search_bar.ts', 'README.md', 'LICENSE')) {
+    foreach ($file in @('package.json', 'freshone.ts', 'README.md', 'LICENSE')) {
         $source = Join-Path $SourceRoot $file
         if (Test-Path -LiteralPath $source -PathType Leaf) {
             Copy-Item -LiteralPath $source -Destination (Join-Path $staging $file) -Force
         }
+    }
+    $stagingLib = Join-Path $staging 'lib'
+    foreach ($source in $libFiles) {
+        $relativePath = $source.FullName.Substring($libRoot.Length + 1)
+        $target = Join-Path $stagingLib $relativePath
+        New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+        Copy-Item -LiteralPath $source.FullName -Destination $target -Force
     }
     if (Test-Path -LiteralPath $destination) {
         Move-Item -LiteralPath $destination -Destination $backup
