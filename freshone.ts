@@ -1,8 +1,10 @@
 import { registerLspFindReferencesDock } from "./lib/lsp_find_references_dock.ts";
 import { handleBufferSearchTextInput } from "./lib/buffer_search_bar.ts";
 import { handleFindFilesTextInput } from "./lib/find_in_files.ts";
+import { registerPiSessions } from "./lib/pi.ts";
 
 registerLspFindReferencesDock();
+registerPiSessions();
 
 function freshoneModeTextInput(data: { text: string }): void {
   if (handleBufferSearchTextInput(data)) return;

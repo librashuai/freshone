@@ -63,6 +63,26 @@ Fresh 0.5.1 的插件 API 不能向原生 `Ctrl+F` prompt 添加按钮，因此�
 
 自定义命令不触发 Fresh 的 `lsp_references` 结果事件，也不会卸载或修改内置的 `find_references` 插件。因此原有的 LSP Find References 菜单和快捷键仍使用 Fresh 自带的结果界面，只有 **`LSP Find References Dock`** 使用本插件的 Utility Dock Panel。
 
+## Pi Sessions
+
+启动 Fresh 后，File Explorer 下方会显示 **Pi Sessions** section：只列出 session JSONL 文件头中的 `cwd` 与当前项目目录一致的会话，按创建时间倒序显示。插件监听 Pi 的 sessions 目录及当前项目子目录；新建/删除会话会自动刷新。切换 Fresh workspace 时会重新扫描并切换监控；也可以执行 **Pi Refresh Sessions** 手动刷新。
+
+在列表中用鼠标或 `↑`/`↓` 选择会话，按 **Enter**（或双击）即可在新的终端 split 中继续会话。命令面板提供 **Pi Focus Sessions** 和 **Pi Resume Session**；后者可在 Fresh 的 Show Keyboard Shortcuts 中绑定自定义快捷键。若仍显示空列表，执行 **Pi Sessions Status** 可查看扫描结果；完整扫描目录也会写入 Fresh 日志。比如在 `config.json` 顶层加入：
+
+```json
+{
+  "keybindings": [
+    {
+      "key": "r",
+      "modifiers": ["ctrl", "alt"],
+      "action": "freshone_pi_sessions_resume"
+    }
+  ]
+}
+```
+
+Pi 的 `-r` 只能打开交互式会话选择器；为了准确恢复所选会话，这里使用等效的 `pi --session <session文件路径>`，并将原始 argv 直接交给终端，不经过 shell。支持默认 `~/.pi/agent/sessions`、`PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR` 和 Pi 全局 `settings.json` 中的 `sessionDir`；自定义 sessions 目录按 Pi 的规则直接存放 JSONL，不附加项目子目录。相关功能集中在 `lib/pi.ts`。
+
 ## 安装（Windows / winget 版 Fresh）
 
 在 PowerShell 中进入本仓库：
@@ -100,3 +120,4 @@ Fresh 已运行时需要重启。也可以让脚本自动重启：
 - Find in Files 需要系统 `PATH` 中可用的 `fd`
 - LSP Find References 需要为当前语言配置并启动 LSP
 - 引用文件位于 Fresh 的当前 workspace 中（项目相对路径以 `editor.getCwd()` 为根）
+- Pi Sessions 需要本机已安装 `pi`，且 Pi 会话文件位于本机可访问的 sessions 目录；Windows 使用 npm 的 `pi.cmd`

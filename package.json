@@ -1,10 +1,10 @@
 {
   "name": "freshone",
-  "version": "0.3.0",
-  "description": "Docked references plus current-buffer and project-wide content search for Fresh Editor",
+  "version": "0.4.1",
+  "description": "Fresh Editor searches, docked references, and live Pi session explorer",
   "type": "plugin",
   "license": "MIT",
-  "keywords": ["fresh-editor", "lsp", "references", "search", "fd"],
+  "keywords": ["fresh-editor", "lsp", "references", "search", "fd", "pi", "sessions"],
   "fresh": {
     "min_version": "0.5.1",
     "entry": "freshone.ts"
