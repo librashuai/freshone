@@ -4,7 +4,10 @@
   "description": "Fresh Editor searches, docked references, and live Pi session explorer",
   "type": "plugin",
   "license": "MIT",
-  "keywords": ["fresh-editor", "lsp", "references", "search", "fd", "pi", "sessions"],
+  "keywords": ["fresh-editor", "lsp", "references", "search", "ripgrep", "pi", "sessions"],
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
   "fresh": {
     "min_version": "0.5.1",
     "entry": "freshone.ts"

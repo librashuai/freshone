@@ -18,13 +18,11 @@ interface FindFilesState {
   results: FindFilesMatch[];
   selected: number;
   searching: boolean;
-  scanned: number;
-  totalFiles: number;
   status: string;
   truncated: boolean;
   token: number;
   opening: boolean;
-  fdProcess: ProcessHandle<SpawnResult> | null;
+  rgProcess: ProcessHandle<SpawnResult> | null;
   contextPath: string;
   contextLines: string[];
   lastContextClickAt: number;
@@ -41,13 +39,11 @@ const findFilesState: FindFilesState = {
   results: [],
   selected: 0,
   searching: false,
-  scanned: 0,
-  totalFiles: 0,
   status: "",
   truncated: false,
   token: 0,
   opening: false,
-  fdProcess: null,
+  rgProcess: null,
   contextPath: "",
   contextLines: [],
   lastContextClickAt: 0,
@@ -109,27 +105,12 @@ function findFilesInput(value: string): WidgetSpec {
   };
 }
 
-function findFilesCodePointLength(value: string): number {
-  return Array.from(value).length;
-}
-
 function findFilesProgressText(): string {
-  if (!findFilesState.searching && findFilesState.totalFiles === 0) {
-    return findFilesState.status;
-  }
-  const width = 12;
-  const ratio = findFilesState.totalFiles > 0
-    ? Math.min(1, findFilesState.scanned / findFilesState.totalFiles)
-    : 0;
-  const filled = Math.round(width * ratio);
-  const bar = `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
-  const percent = findFilesState.totalFiles > 0
-    ? `${String(Math.round(ratio * 100)).padStart(3, " ")}%`
-    : " --%";
+  if (!findFilesState.searching && !findFilesState.results.length) return findFilesState.status;
   const count = findFilesState.truncated
     ? `${FIND_FILES_MAX_RESULTS}+ matches`
     : `${findFilesState.results.length} matches`;
-  return `${bar} ${percent} · ${count}`;
+  return `${findFilesState.searching ? "Searching… · " : ""}${count}`;
 }
 
 function findFilesVisibleRows(): number {
@@ -468,8 +449,8 @@ async function collapseFindFilesDockIfUnused(
 
 function resetFindFilesState(): void {
   findFilesState.token++;
-  if (findFilesState.fdProcess !== null) {
-    void findFilesState.fdProcess.kill().catch(() => {});
+  if (findFilesState.rgProcess !== null) {
+    void findFilesState.rgProcess.kill().catch(() => {});
   }
   findFilesState.sourceSplitId = null;
   findFilesState.panelBufferId = null;
@@ -477,13 +458,10 @@ function resetFindFilesState(): void {
   findFilesState.query = "";
   findFilesState.results = [];
   findFilesState.selected = 0;
-  findFilesState.searching = false;
-  findFilesState.scanned = 0;
-  findFilesState.totalFiles = 0;
-  findFilesState.status = "";
+  findFilesState.searching = false;  findFilesState.status = "";
   findFilesState.truncated = false;
   findFilesState.opening = false;
-  findFilesState.fdProcess = null;
+  findFilesState.rgProcess = null;
   findFilesState.contextPath = "";
   findFilesState.contextLines = [];
   findFilesState.lastContextClickAt = 0;
@@ -512,37 +490,48 @@ function findFilesAbsolutePath(cwd: string, path: string): string {
   return findFilesEditor.pathJoin(cwd, clean);
 }
 
-function collectFileContentMatches(
-  text: string,
-  query: string,
-  file: string,
-  relative: string,
-  remaining: number,
-): FindFilesMatch[] {
-  if (!query || remaining <= 0 || text.includes("\0")) return [];
-  const needle = query.toLowerCase();
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
+// rg's JSON submatch offsets are UTF-8 bytes; Fresh widgets use code points.
+function parseFindFilesMatch(line: string, cwd: string): FindFilesMatch[] {
+  const event = JSON.parse(line) as {
+    type?: string;
+    data?: {
+      path?: { text?: string };
+      lines?: { text?: string };
+      line_number?: number;
+      submatches?: Array<{ start: number; end: number }>;
+    };
+  };
+  if (event.type !== "match") return [];
+  const data = event.data;
+  if (typeof data?.path?.text !== "string" || typeof data.lines?.text !== "string" ||
+      !Number.isInteger(data.line_number) || (data.line_number ?? 0) < 1 ||
+      !Array.isArray(data.submatches)) return [];
+  // rg encodes non-UTF-8 paths/lines as base64 bytes, not displayable text.
+  const relative = data.path.text.replace(/^\.([/\\])/, "").replace(/\\/g, "/");
+  const file = findFilesAbsolutePath(cwd, data.path.text);
+  const source = data.lines.text.replace(/\r?\n$/, "");
   const matches: FindFilesMatch[] = [];
-  for (let line = 0; line < lines.length && matches.length < remaining; line++) {
-    const source = lines[line];
-    const haystack = source.toLowerCase();
-    let from = 0;
-    while (from <= haystack.length && matches.length < remaining) {
-      const index = haystack.indexOf(needle, from);
-      if (index < 0) break;
-      const start = findFilesCodePointLength(source.slice(0, index));
-      const end = start + findFilesCodePointLength(source.slice(index, index + query.length));
-      matches.push({
-        file,
-        relative,
-        line,
-        column: start,
-        lineText: source,
-        matchStart: start,
-        matchEnd: end,
-      });
-      from = index + Math.max(1, query.length);
+  const characters = source[Symbol.iterator]();
+  let bytes = 0;
+  let column = 0;
+  const advance = (offset: number): number | null => {
+    while (bytes < offset) {
+      const character = characters.next();
+      if (character.done) return null;
+      bytes += findFilesEditor.utf8ByteLength(character.value);
+      column++;
     }
+    return bytes === offset ? column : null;
+  };
+  // rg reports ordered, non-overlapping submatches, so convert all offsets
+  // in one pass even on a line with many matches.
+  for (const { start, end } of data.submatches) {
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < bytes || end <= start) continue;
+    const matchStart = advance(start);
+    const matchEnd = advance(end);
+    if (matchStart === null || matchEnd === null || matchStart === matchEnd) continue;
+    matches.push({ file, relative, line: data.line_number! - 1, column: matchStart,
+      lineText: source, matchStart, matchEnd });
   }
   return matches;
 }
@@ -551,16 +540,15 @@ async function executeFindInFiles(): Promise<void> {
   const query = findFilesState.query;
   if (!query || findFilesState.panelBufferId === null) return;
   const token = ++findFilesState.token;
-  if (findFilesState.fdProcess !== null) {
-    void findFilesState.fdProcess.kill().catch(() => {});
+  if (findFilesState.rgProcess !== null) {
+    void findFilesState.rgProcess.kill().catch(() => {});
+    findFilesState.rgProcess = null;
   }
   findFilesState.results = [];
   findFilesState.selected = 0;
   findFilesState.searching = true;
-  findFilesState.scanned = 0;
-  findFilesState.totalFiles = 0;
   findFilesState.truncated = false;
-  findFilesState.status = "Enumerating project files with fd…";
+  findFilesState.status = "Searching project files with ripgrep…";
   findFilesState.contextPath = "";
   findFilesState.contextLines = [];
   findFilesState.lastContextClickAt = 0;
@@ -572,51 +560,34 @@ async function executeFindInFiles(): Promise<void> {
   const cwd = findFilesEditor.getCwd();
   try {
     const process = findFilesEditor.spawnProcess(
-      "fd",
-      ["--type", "f", "--color", "never", "--size", "-10m", "."],
+      "rg",
+      ["--json", "--fixed-strings", "--ignore-case", "--no-require-git", "--max-filesize", "10M", "--", query, "."],
       cwd,
     );
-    findFilesState.fdProcess = process;
+    findFilesState.rgProcess = process;
     const result = await process.result;
     if (token !== findFilesState.token) return;
-    findFilesState.fdProcess = null;
-    if (result.exit_code !== 0) {
-      throw new Error(result.stderr.trim() || `fd exited with code ${result.exit_code}`);
+    findFilesState.rgProcess = null;
+    // rg: 0 = matches, 1 = no matches, 2 = error.
+    if (result.exit_code !== 0 && result.exit_code !== 1) {
+      throw new Error(result.stderr.trim() || `rg exited with code ${result.exit_code}`);
     }
 
-    const relativePaths = result.stdout
-      .split(/\r?\n/)
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-    findFilesState.totalFiles = relativePaths.length;
-    findFilesState.status = relativePaths.length > 0 ? "Searching file contents…" : "fd found no files";
-    updateFindFilesPanel();
-
     let lastPaint = Date.now();
-    for (let index = 0; index < relativePaths.length; index++) {
+    let from = 0;
+    while (from < result.stdout.length) {
       if (token !== findFilesState.token) return;
-      const relative = relativePaths[index].replace(/^\.([/\\])/, "").replace(/\\/g, "/");
-      const file = findFilesAbsolutePath(cwd, relativePaths[index]);
-      try {
-        const content = findFilesEditor.readFile(findFilesEditor.authorityPath(file));
-        if (content !== null && findFilesState.results.length < FIND_FILES_MAX_RESULTS) {
-          findFilesState.results.push(...collectFileContentMatches(
-            content,
-            query,
-            file,
-            relative,
-            FIND_FILES_MAX_RESULTS - findFilesState.results.length,
-          ));
-        } else if (findFilesState.results.length >= FIND_FILES_MAX_RESULTS) {
-          findFilesState.truncated = true;
-        }
-      } catch {
-        // fd can race a delete or return a file the active authority cannot read.
-      }
-      findFilesState.scanned = index + 1;
-
+      const end = result.stdout.indexOf("\n", from);
+      const line = result.stdout.slice(from, end < 0 ? undefined : end);
+      from = end < 0 ? result.stdout.length : end + 1;
+      if (!line.trim()) continue;
+      const matches = parseFindFilesMatch(line, cwd);
+      const remaining = FIND_FILES_MAX_RESULTS - findFilesState.results.length;
+      if (matches.length > remaining) findFilesState.truncated = true;
+      if (remaining > 0) findFilesState.results.push(...matches.slice(0, remaining));
+      if (findFilesState.truncated) break;
       const now = Date.now();
-      if (index % 20 === 19 || now - lastPaint >= 80) {
+      if (now - lastPaint >= 80) {
         updateFindFilesPanel();
         lastPaint = now;
         await findFilesEditor.delay(1);
@@ -632,7 +603,7 @@ async function executeFindInFiles(): Promise<void> {
     );
   } catch (error) {
     if (token !== findFilesState.token) return;
-    findFilesState.fdProcess = null;
+    findFilesState.rgProcess = null;
     findFilesState.searching = false;
     findFilesState.status = `Search failed: ${String(error)}`;
     updateFindFilesPanel();
@@ -701,21 +672,21 @@ async function startFindInFiles(): Promise<void> {
       .sort((a, b) => a.y - b.y || a.x - b.x)[0];
   const sourceSplitId = sourcePane?.splitId ?? activeSplitId;
   const sourceBufferId = sourcePane?.bufferId ?? activeBufferId;
-  findFilesEditor.setStatus("Checking for fd…");
+  findFilesEditor.setStatus("Checking for ripgrep…");
   try {
     let available = false;
     try {
-      const check = await findFilesEditor.spawnProcess("fd", ["--version"], findFilesEditor.getCwd()).result;
+      const check = await findFilesEditor.spawnProcess("rg", ["--version"], findFilesEditor.getCwd()).result;
       available = check.exit_code === 0;
     } catch {
       available = false;
     }
     if (!available) {
-      const message = "Find in Files requires fd. Install it from https://github.com/sharkdp/fd";
+      const message = "Find in Files requires ripgrep (rg). Install it from https://github.com/BurntSushi/ripgrep";
       findFilesEditor.setStatus(message);
       findFilesEditor.showActionPopup({
-        id: "freshone-fd-required",
-        title: "fd is not installed",
+        id: "freshone-rg-required",
+        title: "ripgrep is not installed",
         message,
         actions: [{ id: "dismiss", label: "OK" }],
       });
@@ -777,7 +748,7 @@ registerHandler("freshone_find_files_start", startFindInFiles);
 
 findFilesEditor.registerCommand(
   "Find in Files",
-  "Search project file contents using fd and show results in the Utility Dock",
+  "Search project file contents using ripgrep and show results in the Utility Dock",
   "freshone_find_files_start",
   null,
 );
@@ -860,9 +831,9 @@ function onFindFilesWidgetEvent(data: {
       findFilesState.lastContextClickIndex = -1;
       if (findFilesState.searching) {
         findFilesState.token++;
-        if (findFilesState.fdProcess !== null) {
-          void findFilesState.fdProcess.kill().catch(() => {});
-          findFilesState.fdProcess = null;
+        if (findFilesState.rgProcess !== null) {
+          void findFilesState.rgProcess.kill().catch(() => {});
+          findFilesState.rgProcess = null;
         }
         findFilesState.searching = false;
         findFilesState.status = "Search cancelled; press Search";

@@ -35,13 +35,19 @@ Fresh 0.5.1 的插件 API 不能向原生 `Ctrl+F` prompt 添加按钮，因此�
 
 也可以通过 **Show Keyboard Shortcuts** 为 `freshone_buffer_search_start` 配置其他按键。
 
+## Find File
+
+命令面板中执行 **`Find File`**，在 Utility Dock 输入文件名正则表达式，按 **Enter** 或点击 **Search** 后由 [`fd`](https://github.com/sharkdp/fd) 查找项目文件（遵守 `.gitignore` 和隐藏文件规则，非 Git 仓库也遵守 `.gitignore`）。结果以项目相对路径列表显示，最多 10000 项；列表独立滚动，顶部输入栏保持固定。单击列表项会在上方文件 pane 打开对应文件，面板保持打开，方便继续选择；也可以选中列表项后激活它。修改正则后需重新搜索。`Esc`、`Ctrl+Q`、关闭按钮或结果 tab 的 `×` 可关闭面板；如果未安装 `fd` 会显示安装提示。
+
+**`Find File` 用 `fd` 搜索文件名；`Find in Files` 用 `rg` 搜索文件内容。**
+
 ## Find in Files
 
 命令面板中执行 **`Find in Files`**，会在共享的 Utility Dock 中搜索整个项目的文件内容：
 
-- 使用系统安装的 [`fd`](https://github.com/sharkdp/fd) 枚举项目文件，并遵守 `fd` 默认的 `.gitignore`/隐藏文件规则；
-- 未安装 `fd` 时会显示安装提示和项目地址；
-- 顶部固定显示搜索输入框、紧凑的扫描进度/匹配数量、**Search** 按钮和关闭按钮；
+- 使用系统安装的 [`ripgrep` (`rg`)](https://github.com/BurntSushi/ripgrep) 直接搜索文件内容，遵守 `.gitignore`/隐藏文件规则（包括非 Git 仓库中的 `.gitignore`）；
+- 未安装 `rg` 时会显示安装提示和项目地址；
+- 顶部固定显示搜索输入框、搜索状态/匹配数量、**Search** 按钮和关闭按钮；
 - Matches 和 Context 区域会撑满剩余面板空间，并且可以独立滚动；
 - Matches 使用两级树：一级为文件名及匹配数量，二级只显示该文件中的匹配行内容（不显示行列号）；点击文件名前的箭头或文件名整行可展开/折叠；
 - Context 上边界显示所选文件的项目相对路径，空间不足时路径中间以 `...` 省略；
@@ -49,7 +55,7 @@ Fresh 0.5.1 的插件 API 不能向原生 `Ctrl+F` prompt 添加按钮，因此�
 - 双击 Context 中的任意代码行会在上方代码 pane 打开文件并定位；
 - `Esc`、`Ctrl+Q`、关闭按钮或结果 tab 的 `×` 会退出搜索。
 
-搜索按字面量、不区分大小写；单个文件最大扫描 10 MiB，结果最多保留 10000 条。
+搜索按字面量、不区分大小写；单个文件最大扫描 10 MiB，结果最多保留 10000 条。搜索结果来自 `rg --json`，不重新读取文件以计算匹配位置；Context 仍按需读取文件。
 
 ## LSP Find References Dock
 
@@ -117,7 +123,8 @@ Fresh 已运行时需要重启。也可以让脚本自动重启：
 
 - Fresh Editor 0.5.1 或更高版本
 - Find in Buffer 可用于普通文本 Buffer
-- Find in Files 需要系统 `PATH` 中可用的 `fd`
+- Find File 需要系统 `PATH` 中可用的 `fd`
+- Find in Files 需要系统 `PATH` 中可用的 `rg`
 - LSP Find References 需要为当前语言配置并启动 LSP
 - 引用文件位于 Fresh 的当前 workspace 中（项目相对路径以 `editor.getCwd()` 为根）
 - Pi Sessions 需要本机已安装 `pi`，且 Pi 会话文件位于本机可访问的 sessions 目录；Windows 使用 npm 的 `pi.cmd`
