@@ -250,7 +250,7 @@ function piHealthCheck(): void {
   }
 }
 
-async function piNewSession(): Promise<void> {
+async function piOpenInDock(cwd: string, sessionPath: string | null): Promise<void> {
   if (piSessionsState.opening) return;
   piSessionsState.opening = true;
   let terminal: TerminalResult | null = null;
@@ -275,11 +275,16 @@ async function piNewSession(): Promise<void> {
     await piSessionsEditor.flush();
 
     const command = piSessionsEditor.getEnv("OS") === "Windows_NT" ? "pi.cmd" : "pi";
+    // `--session` opens this exact file; `-r` would show an interactive picker.
+    // Pass argv directly so paths with spaces/metacharacters are never shell-expanded.
+    const argv = sessionPath === null ? [command] : [command, "--session", sessionPath];
     // allowScript grants Pi a window-bound FRESH_CMD_TOKEN. No temporary
     // terminal split is ever created, so the source pane cannot flash.
-    terminal = await piSessionsEditor.createTerminal({
-      cwd: piSessionsEditor.getCwd(), command: [command], title: "pi", allowScript: true,
-    });
+    const options: CreateTerminalOptions = {
+      cwd, command: argv, title: sessionPath === null ? "pi" : "pi session", allowScript: true,
+    };
+    if (sessionPath !== null) options.resume = argv;
+    terminal = await piSessionsEditor.createTerminal(options);
     await piSessionsEditor.flush();
     const pane = piSessionsEditor.describeWorkspace().panes.find((item) => item.splitId === dockSplitId);
     if (terminal.splitId !== null || pane?.bufferId !== terminal.bufferId) {
@@ -299,10 +304,14 @@ async function piNewSession(): Promise<void> {
       const pane = piSessionsEditor.describeWorkspace().panes.find((item) => item.splitId === dockSplitId);
       if (pane?.kind === "file") piSessionsEditor.closeSplit(dockSplitId);
     }
-    piSessionsEditor.setStatus(`Unable to start pi session: ${String(error)}`);
+    piSessionsEditor.setStatus(`Unable to ${sessionPath === null ? "start" : "resume"} pi session: ${String(error)}`);
   } finally {
     piSessionsState.opening = false;
   }
+}
+
+function piNewSession(): Promise<void> {
+  return piOpenInDock(piSessionsEditor.getCwd(), null);
 }
 
 async function piResumeSelected(): Promise<void> {
@@ -314,22 +323,7 @@ async function piResumeSelected(): Promise<void> {
     piRefresh();
     return;
   }
-  piSessionsState.opening = true;
-  try {
-    // `pi -r` opens an interactive picker; `--session` resumes this exact file.
-    // Pass argv directly: session paths can contain spaces and shell metacharacters.
-    const command = piSessionsEditor.getEnv("OS") === "Windows_NT" ? "pi.cmd" : "pi";
-    await piSessionsEditor.createTerminal({
-      cwd: piSessionsState.cwd, direction: "horizontal", focus: true,
-      command: [command, "--session", session.path],
-      resume: [command, "--session", session.path],
-      title: "pi session",
-    });
-  } catch (error) {
-    piSessionsEditor.setStatus(`Unable to resume pi session: ${String(error)}`);
-  } finally {
-    piSessionsState.opening = false;
-  }
+  await piOpenInDock(piSessionsState.cwd, session.path);
 }
 
 function piOnWidgetEvent(event: {
@@ -386,7 +380,7 @@ export function registerPiSessions(): void {
   piSessionsEditor.on("active_window_changed", "freshone_pi_sessions_window_changed");
   piSessionsEditor.on("widget_event", "freshone_pi_sessions_widget_event");
   piSessionsEditor.registerCommand("Pi Focus Sessions", "Focus the Pi Sessions section in the file explorer", "freshone_pi_sessions_show");
-  piSessionsEditor.registerCommand("Pi Resume Session", "Open the selected session in a new terminal split", "freshone_pi_sessions_resume");
+  piSessionsEditor.registerCommand("Pi Resume Session", "Resume the selected session in the Utility Dock with Fresh script access", "freshone_pi_sessions_resume");
   piSessionsEditor.registerCommand("Pi New Session", "Start pi in the Utility Dock with Fresh script access", "freshone_pi_new_session");
   piSessionsEditor.registerCommand("Pi Refresh Sessions", "Rescan Pi sessions for this project", "freshone_pi_sessions_refresh");
   piSessionsEditor.registerCommand("Pi Sessions Status", "Show the Pi session directory and scan result", "freshone_pi_sessions_status");

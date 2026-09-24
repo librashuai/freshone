@@ -75,7 +75,7 @@ Fresh 0.5.1 的插件 API 不能向原生 `Ctrl+F` prompt 添加按钮，因此�
 
 命令面板执行 **Pi New Session** 会在当前 workspace 目录启动新的 `pi`，终端直接作为共享 **Utility Dock** 的 tab 打开（不在代码区域临时创建终端 split），并通过 Fresh `createTerminal` 的 `allowScript` 授权该终端执行 Fresh script（为后续 Pi → Fresh 交互预留能力；这不是只读权限，请仅用于可信任的 Pi 进程）。新会话启动不依赖已有 session 文件；可为 `freshone_pi_new_session` 绑定快捷键。
 
-在列表中用鼠标或 `↑`/`↓` 选择会话，按 **Enter**（或双击）即可在新的终端 split 中继续会话。命令面板提供 **Pi Focus Sessions** 和 **Pi Resume Session**；后者可在 Fresh 的 Show Keyboard Shortcuts 中绑定自定义快捷键。若仍显示空列表，执行 **Pi Sessions Status** 可查看扫描结果；完整扫描目录也会写入 Fresh 日志。比如在 `config.json` 顶层加入：
+在列表中用鼠标或 `↑`/`↓` 选择会话，按 **Enter**（或双击）即可在共享 **Utility Dock** 的新终端 tab 中继续会话；命令面板的 **Pi Resume Session** 也使用相同机制，启用 `allowScript`，允许恢复的 Pi 进程执行 Fresh script（仅适用于可信任的会话）。命令面板还提供 **Pi Focus Sessions**；**Pi Resume Session** 可在 Fresh 的 Show Keyboard Shortcuts 中绑定自定义快捷键。若仍显示空列表，执行 **Pi Sessions Status** 可查看扫描结果；完整扫描目录也会写入 Fresh 日志。比如在 `config.json` 顶层加入：
 
 ```json
 {

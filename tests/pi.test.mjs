@@ -21,7 +21,11 @@ test('Pi Sessions filters by the JSONL header cwd and resumes the selected file'
   const mounts = [];
   const terminals = [];
   const watches = [];
-  globalThis.getEditor = () => ({
+  const statuses = [];
+  let dockBufferId = null;
+  let dockSplitId = null;
+  let dockOpens = 0;
+  const editor = {
     getEnv: (name) => name === 'USERPROFILE' ? root : null,
     getCwd: () => '\\\\?\\D:\\Project\\freshone',
     pathJoin: (...parts) => path.join(...parts),
@@ -38,8 +42,29 @@ test('Pi Sessions filters by the JSONL header cwd and resumes the selected file'
     on: (name, handler) => events.set(name, handler),
     registerCommand: (name, _description, handler) => { commands.set(name, handler); return true; },
     setInterval: () => 1,
-    createTerminal: async (opts) => { terminals.push(opts); return {}; },
-  });
+    describeWorkspace: () => ({ panes: [
+      { splitId: 1, bufferId: 1, kind: 'file' },
+      ...(dockSplitId === null ? [] : [{ splitId: dockSplitId, bufferId: dockBufferId, kind: 'virtual' }]),
+    ] }),
+    createVirtualBufferInSplit: async (opts) => {
+      assert.equal(opts.role, 'utility_dock');
+      dockOpens++;
+      dockSplitId = 2;
+      dockBufferId = 100;
+      return { bufferId: 100, splitId: 2 };
+    },
+    focusSplit: (id) => { assert.equal(id, 2); return true; },
+    flush: async () => {},
+    createTerminal: async (opts) => {
+      terminals.push(opts);
+      dockBufferId = 101;
+      return { bufferId: 101, terminalId: 7, splitId: null };
+    },
+    closeBuffer: (id) => { if (id === 101) dockBufferId = 100; return true; },
+    closeTerminal: () => true,
+    setStatus: (message) => { statuses.push(message); },
+  };
+  globalThis.getEditor = () => editor;
   globalThis.registerHandler = (name, fn) => handlers.set(name, fn);
   try {
     const { registerPiSessions } = await import('../lib/pi.ts');
@@ -52,6 +77,48 @@ test('Pi Sessions filters by the JSONL header cwd and resumes the selected file'
     await handlers.get(commands.get('Pi Resume Session'))();
     assert.equal(terminals[0].command[1], '--session');
     assert.equal(path.resolve(terminals[0].command[2]), path.resolve(session));
+    assert.deepEqual(terminals[0].resume, terminals[0].command);
+    assert.equal(terminals[0].cwd, '\\\\?\\D:\\Project\\freshone');
+    assert.equal(terminals[0].allowScript, true);
+    assert.equal('direction' in terminals[0], false);
+    assert.equal(dockSplitId, 2);
+
+    // Enter/double-click uses the same dock path, not the old split API.
+    handlers.get(events.get('widget_event'))({
+      panel_id: 73112, widget_key: 'freshone-pi-sessions-list', event_type: 'activate', payload: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(terminals.length, 2);
+    assert.deepEqual(terminals[1].command, terminals[0].command);
+
+    // Missing selected session: refresh instead of opening an invalid path.
+    fs.rmSync(session);
+    await handlers.get(commands.get('Pi Resume Session'))();
+    assert.equal(terminals.length, 2);
+
+    // Fresh's terminal failure reports an error and can be retried.
+    fs.writeFileSync(session, JSON.stringify({ type: 'session', cwd: currentCwd }) + '\n');
+    handlers.get(commands.get('Pi Refresh Sessions'))();
+    editor.createTerminal = async () => { throw new Error('spawn failed'); };
+    await handlers.get(commands.get('Pi Resume Session'))();
+    assert.match(statuses.at(-1), /Unable to resume pi session: Error: spawn failed/);
+
+    // A pending resume prevents New Session from launching another terminal;
+    // failure releases the guard for a later attempt.
+    let release;
+    editor.createTerminal = (opts) => {
+      terminals.push(opts);
+      return new Promise((resolve) => { release = resolve; });
+    };
+    const pending = handlers.get(commands.get('Pi Resume Session'))();
+    await handlers.get(commands.get('Pi New Session'))();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(terminals.length, 3);
+    assert.equal(dockOpens, 4); // 2 successes, 1 failed spawn, 1 pending resume.
+    dockBufferId = 101;
+    release({ bufferId: 101, terminalId: 7, splitId: null });
+    await pending;
+    assert.equal(statuses.length, 1);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
