@@ -250,6 +250,61 @@ function piHealthCheck(): void {
   }
 }
 
+async function piNewSession(): Promise<void> {
+  if (piSessionsState.opening) return;
+  piSessionsState.opening = true;
+  let terminal: TerminalResult | null = null;
+  let dock: VirtualBufferResult | null = null;
+  let dockSplitId: number | null = null;
+  const existingSplits = new Set(piSessionsEditor.describeWorkspace().panes.map((pane) => pane.splitId));
+  try {
+    // Only the virtual-buffer API supports role="utility_dock" in Fresh 0.5.1.
+    // It focuses the dock (creating it if needed), without opening a terminal
+    // anywhere else. Do NOT pass direction to createTerminal below: without
+    // it Fresh attaches the PTY as a tab in the currently active dock split.
+    dock = await piSessionsEditor.createVirtualBufferInSplit({
+      name: "Starting pi", direction: "horizontal", ratio: 0.65,
+      panelId: "freshone-pi-terminal", role: "utility_dock", readOnly: true,
+    });
+    await piSessionsEditor.flush();
+    dockSplitId = piSessionsEditor.describeWorkspace().panes.find(
+      (pane) => pane.bufferId === dock!.bufferId,
+    )?.splitId ?? null;
+    if (dockSplitId === null) throw new Error("Unable to open Utility Dock");
+    piSessionsEditor.focusSplit(dockSplitId);
+    await piSessionsEditor.flush();
+
+    const command = piSessionsEditor.getEnv("OS") === "Windows_NT" ? "pi.cmd" : "pi";
+    // allowScript grants Pi a window-bound FRESH_CMD_TOKEN. No temporary
+    // terminal split is ever created, so the source pane cannot flash.
+    terminal = await piSessionsEditor.createTerminal({
+      cwd: piSessionsEditor.getCwd(), command: [command], title: "pi", allowScript: true,
+    });
+    await piSessionsEditor.flush();
+    const pane = piSessionsEditor.describeWorkspace().panes.find((item) => item.splitId === dockSplitId);
+    if (terminal.splitId !== null || pane?.bufferId !== terminal.bufferId) {
+      throw new Error("Pi terminal did not open in Utility Dock");
+    }
+    piSessionsEditor.closeBuffer(dock.bufferId, true);
+  } catch (error) {
+    if (terminal) {
+      piSessionsEditor.closeTerminal(terminal.terminalId);
+      piSessionsEditor.closeBuffer(terminal.bufferId, true);
+    }
+    if (dock) piSessionsEditor.closeBuffer(dock.bufferId, true);
+    // A newly created dock whose last tab failed should not leave behind a
+    // duplicate source file pane. Never collapse a pre-existing shared dock.
+    if (dockSplitId !== null && !existingSplits.has(dockSplitId)) {
+      await piSessionsEditor.flush();
+      const pane = piSessionsEditor.describeWorkspace().panes.find((item) => item.splitId === dockSplitId);
+      if (pane?.kind === "file") piSessionsEditor.closeSplit(dockSplitId);
+    }
+    piSessionsEditor.setStatus(`Unable to start pi session: ${String(error)}`);
+  } finally {
+    piSessionsState.opening = false;
+  }
+}
+
 async function piResumeSelected(): Promise<void> {
   piSyncWorkspace();
   const session = piSessionsState.sessions.find((item) => item.path === piSessionsState.selectedPath);
@@ -320,6 +375,7 @@ function piShowSessions(): void {
 export function registerPiSessions(): void {
   registerHandler("freshone_pi_sessions_show", piShowSessions);
   registerHandler("freshone_pi_sessions_resume", piResumeSelected);
+  registerHandler("freshone_pi_new_session", piNewSession);
   registerHandler("freshone_pi_sessions_refresh", piRefresh);
   registerHandler("freshone_pi_sessions_status", piSessionsStatus);
   registerHandler("freshone_pi_sessions_health", piHealthCheck);
@@ -331,6 +387,7 @@ export function registerPiSessions(): void {
   piSessionsEditor.on("widget_event", "freshone_pi_sessions_widget_event");
   piSessionsEditor.registerCommand("Pi Focus Sessions", "Focus the Pi Sessions section in the file explorer", "freshone_pi_sessions_show");
   piSessionsEditor.registerCommand("Pi Resume Session", "Open the selected session in a new terminal split", "freshone_pi_sessions_resume");
+  piSessionsEditor.registerCommand("Pi New Session", "Start pi in the Utility Dock with Fresh script access", "freshone_pi_new_session");
   piSessionsEditor.registerCommand("Pi Refresh Sessions", "Rescan Pi sessions for this project", "freshone_pi_sessions_refresh");
   piSessionsEditor.registerCommand("Pi Sessions Status", "Show the Pi session directory and scan result", "freshone_pi_sessions_status");
   piSyncWorkspace();
